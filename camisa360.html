@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Camisa 360°</title>
+<style>
+  :root{
+    --bg:#14161a; --bg2:#23262d; --ink:#f2f3f5; --mut:#9aa0ab; --line:rgba(255,255,255,.14); --acc:#f2f3f5;
+  }
+  body.claro{ --bg:#eceef1; --bg2:#ffffff; --ink:#14161a; --mut:#5d6470; --line:rgba(0,0,0,.14); --acc:#14161a; }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:radial-gradient(ellipse 70% 60% at 50% 42%, var(--bg2) 0%, var(--bg) 72%);
+    color:var(--ink); font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    display:flex; flex-direction:column; overflow:hidden; transition:background .3s;
+    -webkit-user-select:none; user-select:none;
+  }
+  header{display:flex; justify-content:space-between; align-items:center; gap:12px; padding:18px 20px 0 20px; padding-top:max(18px, env(safe-area-inset-top))}
+  h1{font-size:15px; font-weight:600; letter-spacing:.02em; margin:0}
+  .tools{display:flex; gap:8px}
+  button{
+    appearance:none; border:1px solid var(--line); background:transparent; color:var(--ink);
+    height:38px; min-width:38px; padding:0 14px; border-radius:19px; font:inherit; font-size:13px; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center; gap:7px; transition:background .15s, border-color .15s;
+  }
+  button:hover{background:var(--line)}
+  button:focus-visible,#stage:focus-visible{outline:2px solid var(--acc); outline-offset:3px}
+  button svg{width:16px;height:16px;fill:currentColor}
+  main{flex:1; min-height:0; position:relative; display:flex; align-items:center; justify-content:center; padding:8px 12px}
+  #stage{
+    position:relative; width:100%; height:100%; max-width:900px; cursor:grab; touch-action:pan-y; border-radius:12px;
+  }
+  #stage.arrastando{cursor:grabbing}
+  canvas{width:100%; height:100%; display:block}
+  .sombra{
+    position:absolute; left:50%; bottom:6%; width:46%; height:5%; transform:translateX(-50%);
+    background:radial-gradient(ellipse at center, rgba(0,0,0,.38) 0%, rgba(0,0,0,0) 70%); pointer-events:none; filter:blur(4px);
+  }
+  body.claro .sombra{background:radial-gradient(ellipse at center, rgba(0,0,0,.22) 0%, rgba(0,0,0,0) 70%)}
+  #dica{
+    position:absolute; left:50%; bottom:11%; transform:translateX(-50%); display:flex; align-items:center; gap:10px;
+    padding:9px 16px; border:1px solid var(--line); border-radius:22px; color:var(--mut); font-size:13px; pointer-events:none;
+    background:color-mix(in srgb, var(--bg) 70%, transparent); transition:opacity .5s; white-space:nowrap;
+  }
+  #dica.some{opacity:0}
+  #dica svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  footer{padding:0 20px 18px; padding-bottom:max(18px, env(safe-area-inset-bottom)); display:flex; align-items:center; gap:14px}
+  #barra{flex:1; height:22px; display:flex; align-items:center; cursor:pointer; touch-action:none}
+  #barra i{display:block; width:100%; height:3px; border-radius:2px; background:var(--line); position:relative}
+  #barra b{position:absolute; top:50%; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; background:var(--acc); left:0}
+  #graus{font-variant-numeric:tabular-nums; color:var(--mut); font-size:13px; min-width:42px; text-align:right}
+  #carregando{
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    color:var(--mut); font-size:13px; transition:opacity .4s; pointer-events:none;
+  }
+  #carregando.some{opacity:0}
+  #carregando .trilho{width:180px; height:3px; background:var(--line); border-radius:2px; overflow:hidden}
+  #carregando .trilho i{display:block; height:100%; width:0; background:var(--acc); transition:width .15s}
+  #erro{display:none; max-width:440px; text-align:center; color:var(--mut); padding:0 24px}
+  @media (prefers-reduced-motion: reduce){ #dica{transition:none} }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="titulo">Camisa 360°</h1>
+  <div class="tools">
+    <button id="btnPlay" type="button" aria-label="Girar automaticamente"></button>
+    <button id="btnTema" type="button" aria-label="Alternar fundo claro e escuro">Fundo</button>
+  </div>
+</header>
+
+<main>
+  <div id="stage" tabindex="0" role="img" aria-label="Camisa em 3D. Arraste para os lados ou use as setas do teclado para girar.">
+    <canvas id="tela"></canvas>
+    <div class="sombra"></div>
+    <div id="dica">
+      <svg viewBox="0 0 24 24"><path d="M4 12h16M7 8l-4 4 4 4M17 8l4 4-4 4"/></svg>
+      Arraste para girar
+    </div>
+    <div id="carregando">
+      <div class="trilho"><i id="prog"></i></div>
+      <span id="progTxt">Carregando…</span>
+      <div id="erro"></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div id="barra" aria-label="Posição da rotação"><i><b id="polegar"></b></i></div>
+  <span id="graus">0°</span>
+</footer>
+
+<script>
+/* ============ CONFIGURAÇÃO (edite aqui) ============ */
+const CONFIG = {
+  titulo:   "Camisa 360°",
+  pasta:    "render/",        // pasta com os quadros, ao lado deste HTML
+  prefixo:  "camisa_",        // nome antes do número
+  digitos:  4,                // camisa_0001.png -> 4
+  extensao: "png",            // png, webp ou jpg
+  primeiro: 1,                // número do primeiro quadro
+  total:    0,                // 0 = descobre sozinho quantos quadros existem
+  autoGiro: true,             // gira devagar até a pessoa tocar
+  velocidadeAuto: 0.12,       // quadros por milissegundo no giro automático
+  sensibilidade: 1.0,         // maior = gira mais por arrastada
+  inercia: true,              // continua girando um pouco ao soltar
+  inverter: false             // true inverte o sentido do arraste
+};
+/* ===================================================== */
+
+const $ = id => document.getElementById(id);
+const tela = $("tela"), ctx = tela.getContext("2d");
+const stage = $("stage");
+const quadros = [];            // ImageBitmap/Image por índice
+let total = 0, pos = 0;        // pos = posição fracionária em quadros
+let auto = CONFIG.autoGiro, arrastando = false, vel = 0, ultimoTempo = 0, tocou = false;
+
+$("titulo").textContent = CONFIG.titulo;
+document.title = CONFIG.titulo;
+
+const ICON_PLAY  = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><span>Girar</span>';
+const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg><span>Pausar</span>';
+function atualizaBotaoPlay(){ $("btnPlay").innerHTML = auto ? ICON_PAUSE : ICON_PLAY; }
+
+function nomeQuadro(i){
+  return CONFIG.pasta + CONFIG.prefixo + String(CONFIG.primeiro + i).padStart(CONFIG.digitos, "0") + "." + CONFIG.extensao;
+}
+function carrega(i){
+  return new Promise(res => {
+    const im = new Image();
+    im.decoding = "async";
+    im.onload  = () => res(im);
+    im.onerror = () => res(null);
+    im.src = nomeQuadro(i);
+  });
+}
+
+async function preload(){
+  const LOTE = 12;
+  const limite = CONFIG.total > 0 ? CONFIG.total : 2000;
+  let i = 0, fim = false;
+  while (i < limite && !fim){
+    const lote = [];
+    for (let k = 0; k < LOTE && i + k < limite; k++) lote.push(carrega(i + k));
+    const r = await Promise.all(lote);
+    for (let k = 0; k < r.length; k++){
+      if (!r[k]){ fim = true; break; }
+      quadros.push(r[k]);
+      if (quadros.length === 1) desenha();        // mostra o 1º quadro já
+    }
+    i += LOTE;
+    $("prog").style.width = (CONFIG.total ? Math.min(100, quadros.length / CONFIG.total * 100) : Math.min(95, quadros.length / 2.4)) + "%";
+    $("progTxt").textContent = "Carregando… " + quadros.length + (CONFIG.total ? " / " + CONFIG.total : "");
+  }
+  total = quadros.length;
+  if (!total){
+    $("prog").parentElement.style.display = "none"; $("progTxt").style.display = "none";
+    const e = $("erro"); e.style.display = "block";
+    e.innerHTML = "Não encontrei os quadros.<br>Esperado: <b>" + nomeQuadro(0) + "</b><br>Coloque a pasta com a sequência ao lado deste arquivo e confira o bloco CONFIG.";
+    $("carregando").classList.remove("some");
+    return;
+  }
+  $("prog").style.width = "100%";
+  $("carregando").classList.add("some");
+  ajustaCanvas(); desenha();
+  requestAnimationFrame(loop);
+}
+
+/* ---------- desenho ---------- */
+function ajustaCanvas(){
+  const r = stage.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  tela.width = Math.round(r.width * dpr); tela.height = Math.round(r.height * dpr);
+}
+function desenha(){
+  const n = quadros.length; if (!n) return;
+  const idx = ((Math.round(pos) % n) + n) % n;
+  const im = quadros[idx]; if (!im) return;
+  const W = tela.width, H = tela.height, s = Math.min(W / im.naturalWidth, H / im.naturalHeight);
+  const w = im.naturalWidth * s, h = im.naturalHeight * s;
+  ctx.clearRect(0, 0, W, H);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(im, (W - w) / 2, (H - h) / 2, w, h);
+  const frac = idx / n;
+  $("polegar").style.left = (frac * 100) + "%";
+  $("graus").textContent = Math.round(frac * 360) + "°";
+  stage.dataset.quadro = idx;
+}
+
+/* ---------- laço de animação ---------- */
+function loop(t){
+  const dt = Math.min(50, t - (ultimoTempo || t)); ultimoTempo = t;
+  if (!arrastando){
+    if (Math.abs(vel) > 0.0005){ pos += vel * dt; vel *= Math.pow(0.0055, dt / 1000); }  // inércia
+    else if (auto){ pos += CONFIG.velocidadeAuto * dt; }
+  }
+  desenha();
+  requestAnimationFrame(loop);
+}
+
+/* ---------- interação: arrastar com o dedo/mouse ---------- */
+let x0 = 0, p0 = 0, xAnt = 0, tAnt = 0;
+function pxPorQuadro(){ return (stage.clientWidth * 0.9) / (total * CONFIG.sensibilidade); }  // arrastar ~90% da largura = 1 volta
+function fim(){ if (!arrastando) return; arrastando = false; stage.classList.remove("arrastando"); if (!CONFIG.inercia) vel = 0; }
+stage.addEventListener("pointerdown", e => {
+  if (!total) return;
+  arrastando = true; vel = 0; tocou = true; auto = false; atualizaBotaoPlay();
+  stage.setPointerCapture(e.pointerId); stage.classList.add("arrastando");
+  x0 = xAnt = e.clientX; p0 = pos; tAnt = performance.now();
+  $("dica").classList.add("some");
+});
+stage.addEventListener("pointermove", e => {
+  if (!arrastando) return;
+  const dir = CONFIG.inverter ? -1 : 1;
+  pos = p0 + dir * (e.clientX - x0) / pxPorQuadro();
+  const agora = performance.now(), dt = Math.max(1, agora - tAnt);
+  const v = dir * (e.clientX - xAnt) / pxPorQuadro() / dt;
+  vel = vel * 0.6 + v * 0.4; xAnt = e.clientX; tAnt = agora;
+});
+["pointerup","pointercancel","lostpointercapture"].forEach(ev => stage.addEventListener(ev, fim));
+stage.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight"){
+    e.preventDefault(); auto = false; atualizaBotaoPlay(); $("dica").classList.add("some");
+    pos += (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 8 : 2); vel = 0;
+  } else if (e.key === " "){ e.preventDefault(); $("btnPlay").click(); }
+});
+stage.addEventListener("wheel", e => {
+  if (!total) return;
+  if (Math.abs(e.deltaX) > Math.abs(e.deltaY)){ e.preventDefault(); auto = false; atualizaBotaoPlay(); pos += e.deltaX * 0.15; }
+}, {passive:false});
+
+/* barra inferior: arrastar o marcador */
+const barra = $("barra");
+function irPara(e){
+  const r = barra.getBoundingClientRect();
+  pos = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * total; vel = 0; auto = false; atualizaBotaoPlay();
+  $("dica").classList.add("some");
+}
+let arrBarra = false;
+barra.addEventListener("pointerdown", e => { arrBarra = true; barra.setPointerCapture(e.pointerId); irPara(e); });
+barra.addEventListener("pointermove", e => { if (arrBarra) irPara(e); });
+["pointerup","pointercancel"].forEach(ev => barra.addEventListener(ev, () => arrBarra = false));
+
+/* botões */
+$("btnPlay").addEventListener("click", () => { auto = !auto; vel = 0; atualizaBotaoPlay(); if (auto) $("dica").classList.add("some"); });
+let claro = false;
+try { claro = localStorage.getItem("camisa360-tema") === "claro"; } catch(e){}
+function aplicaTema(){ document.body.classList.toggle("claro", claro); try { localStorage.setItem("camisa360-tema", claro ? "claro" : "escuro"); } catch(e){} }
+$("btnTema").addEventListener("click", () => { claro = !claro; aplicaTema(); });
+aplicaTema(); atualizaBotaoPlay();
+
+window.addEventListener("resize", () => { ajustaCanvas(); desenha(); });
+if (window.ResizeObserver) new ResizeObserver(() => { ajustaCanvas(); desenha(); }).observe(stage);
+document.addEventListener("visibilitychange", () => { ultimoTempo = 0; });
+
+preload();
+</script>
+</body>
+</html>
